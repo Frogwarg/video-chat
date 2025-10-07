@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import io from 'socket.io-client';
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Check, Users, AlertCircle } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Check, Users, AlertCircle, Crown } from 'lucide-react';
 import styles from './App.module.css';
 
 export default function VideoChat() {
@@ -18,6 +18,9 @@ export default function VideoChat() {
   const [errorMessage, setErrorMessage] = useState('');
   const [localStreamReady, setLocalStreamReady] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isOwner, setIsOwner] = useState(false);
+  const [roomOwner, setRoomOwner] = useState('');
+  const [peerStates, setPeerStates] = useState({});
   
   const localVideoRef = useRef(null);
   const remoteVideosRef = useRef({});
@@ -49,8 +52,10 @@ export default function VideoChat() {
       setErrorMessage(`⚠️ Не удалось подключиться к серверу: ${err.message}. Проверьте IP и порт.`);
     });
 
-    socket.current.on('existing-peers', (existingPeers) => {
-      console.log('Existing peers in room:', existingPeers);
+    socket.current.on('room-info', ({ owner, existingPeers }) => {
+      console.log('Room info: owner', owner, 'existing peers:', existingPeers);
+      setRoomOwner(owner);
+      setIsOwner(myPeerId.current === owner);
       existingPeers.forEach(peerId => {
         handleSignal({ type: 'peer-joined', fromPeerId: peerId });
       });
@@ -58,6 +63,10 @@ export default function VideoChat() {
 
     socket.current.on('peer-joined', (peerId) => {
       console.log('New peer joined:', peerId);
+      setPeerStates(prev => ({
+        ...prev,
+        [peerId]: { audioEnabled: true, videoEnabled: true } // Начальные состояния
+      }));
       handleSignal({ type: 'peer-joined', fromPeerId: peerId });
     });
 
@@ -85,20 +94,77 @@ export default function VideoChat() {
       setErrorMessage(`⚠️ Ошибка сервера: ${message}`);
     });
 
+    socket.current.on('mute-command', ({ type, mute }) => {
+      if (localStreamRef.current) {
+        const track = type === 'audio' 
+          ? localStreamRef.current.getAudioTracks()[0] 
+          : localStreamRef.current.getVideoTracks()[0];
+        if (track) {
+          track.enabled = !mute; // mute=true -> enabled=false
+          if (type === 'audio') setAudioEnabled(!mute);
+          if (type === 'video') setVideoEnabled(!mute);
+          console.log(`Forced ${type} mute: ${mute}`);
+          // Update senders for all peers
+          Object.values(peerConnectionsRef.current).forEach(pc => {
+            pc.getSenders().forEach(sender => {
+              if (sender.track?.kind === type) {
+                sender.track.enabled = !mute;
+              }
+            });
+          });
+          // Обновляем peerStates для собственного ID
+          setPeerStates(prev => ({
+            ...prev,
+            [myPeerId.current]: {
+              ...prev[myPeerId.current],
+              [type === 'audio' ? 'audioEnabled' : 'videoEnabled']: !mute
+            }
+          }));
+        }
+      }
+    });
+
+    socket.current.on('mute-update', ({ peerId, type, mute }) => {
+      console.log(`Received mute-update for ${peerId}: ${type} = ${mute}`);
+      setPeerStates(prev => ({
+        ...prev,
+        [peerId]: {
+          ...prev[peerId],
+          [type === 'audio' ? 'audioEnabled' : 'videoEnabled']: !mute
+        }
+      }));
+    });
+
+    socket.current.on('kicked', () => {
+      setErrorMessage('⚠️ Вы были удалены владельцем комнаты');
+      leaveRoom();
+    });
+
+    socket.current.on('new-owner', (newOwnerId) => {
+      console.log(`New owner assigned: ${newOwnerId}`);
+      setRoomOwner(newOwnerId);
+      setIsOwner(myPeerId.current === newOwnerId);
+    });
+
     checkDevices();
 
     return () => {
       // Cleanup listeners
-      socket.current.off('existing-peers');
+      socket.current.off('room-info');
       socket.current.off('peer-joined');
       socket.current.off('offer');
       socket.current.off('answer');
       socket.current.off('ice-candidate');
       socket.current.off('peer-left');
       socket.current.off('error');
+      socket.current.off('mute-command');
+      socket.current.off('kicked');
       socket.current.off('connect');
       socket.current.off('connect_error');
+      socket.current.off('new-owner');
+      socket.current.off('mute-update');
     };
+    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverIp]);
 
   // Отдельный эффект для управления локальным видео
@@ -113,6 +179,7 @@ export default function VideoChat() {
         })
         .catch(e => console.error('Local video play error in useEffect:', e));
     }
+    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInCall, localStreamRef.current]);
 
   const checkDevices = async () => {
@@ -433,18 +500,30 @@ export default function VideoChat() {
         console.error('No peer connection found for ICE candidate from peer:', fromPeerId);
       }
     } else if (type === 'peer-left') {
-      if (peerConnectionsRef.current[fromPeerId]) {
-        peerConnectionsRef.current[fromPeerId].close();
-        delete peerConnectionsRef.current[fromPeerId];
-      }
-      if (remoteVideosRef.current[fromPeerId]) {
-        delete remoteVideosRef.current[fromPeerId];
-      }
-      setPeers(prev => {
-        const newPeers = { ...prev };
-        delete newPeers[fromPeerId];
-        return newPeers;
-      });
+        console.log(`Cleaning up peer ${fromPeerId} from UI and connections`);
+        if (peerConnectionsRef.current[fromPeerId]) {
+          peerConnectionsRef.current[fromPeerId].close();
+          delete peerConnectionsRef.current[fromPeerId];
+          console.log(`Closed peer connection for ${fromPeerId}`);
+        }
+        if (remoteVideosRef.current[fromPeerId]) {
+          const video = remoteVideosRef.current[fromPeerId];
+          video.srcObject = null; // Очищаем srcObject
+          delete remoteVideosRef.current[fromPeerId];
+          console.log(`Removed video element for ${fromPeerId}`);
+        }
+        setPeers(prev => {
+          const newPeers = { ...prev };
+          delete newPeers[fromPeerId];
+          console.log(`Removed peer ${fromPeerId} from peers state`);
+          return newPeers;
+        });
+        setPeerStates(prev => {
+          const newStates = { ...prev };
+          delete newStates[fromPeerId];
+          console.log(`Removed peer ${fromPeerId} from peerStates`);
+          return newStates;
+        });
     }
   };
 
@@ -485,6 +564,8 @@ export default function VideoChat() {
     setAudioEnabled(false);
     setLocalStreamReady(false);
     setAudioLevel(0);
+    setIsOwner(false);
+    setRoomOwner('');
     remoteVideosRef.current = {};
   };
 
@@ -529,6 +610,23 @@ export default function VideoChat() {
     } else {
       console.log('No local stream for audio toggle');
       setAudioEnabled(false);
+    }
+  };
+
+  const sendMutePeer = (targetPeerId, type) => {
+    if (isOwner) {
+      const key = type === 'audio' ? 'audioEnabled' : (type === 'video' ? 'videoEnabled' : null);
+      const currentState = key ? Boolean(peerStates?.[targetPeerId]?.[key]) : false;
+      const mute = currentState; // Переключаем текущее состояние
+      console.log(`Current ${type} state for ${targetPeerId}:`, currentState, '-> Sending mute command:', mute);
+      socket.current.emit('mute-peer', { targetPeerId, type, mute });
+      console.log(`Toggling ${type} for ${targetPeerId}: mute=${mute}`);
+    }
+  };
+
+  const sendKickPeer = (targetPeerId) => {
+    if (isOwner) {
+      socket.current.emit('kick-peer', { targetPeerId });
     }
   };
 
@@ -596,11 +694,18 @@ export default function VideoChat() {
           <div>
             <div className={styles.roomInfo}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {isOwner && <Crown style={{ width: '1.25rem', height: '1.25rem', color: '#fbbf24' }} />}
                 <Users style={{ width: '1.25rem', height: '1.25rem', color: '#c084fc' }} />
                 <div>
                   <p style={{ fontSize: '0.875rem', color: '#9ca3af' }}>ID комнаты:</p>
                   <p style={{ fontFamily: 'monospace', fontWeight: '600' }}>{currentRoom}</p>
                 </div>
+                
+                {connectionStatus && (
+                  <div style={{ textAlign: 'center', fontSize: '0.875rem', marginTop: '-1.5rem' }}>
+                    {connectionStatus}
+                  </div>
+                )}
               </div>
               <button
                 onClick={copyRoomId}
@@ -611,19 +716,6 @@ export default function VideoChat() {
               </button>
             </div>
 
-            {connectionStatus && (
-              <div style={{ background: 'rgba(30, 64, 175, 0.3)', border: '1px solid rgba(59, 130, 246, 0.5)', borderRadius: '0.5rem', padding: '0.75rem', textAlign: 'center', fontSize: '0.875rem', marginBottom: '1rem' }}>
-                {connectionStatus}
-              </div>
-            )}
-
-            {localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0 && (
-              <div style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid rgba(16, 185, 129, 0.5)', borderRadius: '0.5rem', padding: '0.75rem', textAlign: 'center', fontSize: '0.875rem', marginBottom: '1rem' }}>
-                🎤 Микрофон активен: {localStreamRef.current.getAudioTracks()[0].label}
-                {audioEnabled && audioLevel > 5 && <span style={{ marginLeft: '0.5rem', color: '#10b981' }}>● Обнаружен звук</span>}
-              </div>
-            )}
-
             <div className={styles.videoGrid}>
               <div className={styles.videoBox}>
                 <video
@@ -633,10 +725,6 @@ export default function VideoChat() {
                   playsInline
                   className={styles.videoMirror}
                   style={{ display: (localStreamReady && localStreamRef.current && localStreamRef.current.getVideoTracks().length > 0 && videoEnabled) ? 'block' : 'none' }}
-                  // style={{
-                  //   ...styles.videoMirror,
-                  //   display: (localStreamRef.current && localStreamRef.current.getVideoTracks().length > 0 && videoEnabled) ? 'block' : 'none'
-                  // }}
                   onError={e => console.error('Local video error:', e)}
                   onLoadedMetadata={() => console.log('Local video metadata loaded')}
                   onCanPlay={() => console.log('Local video can play')}
@@ -673,18 +761,19 @@ export default function VideoChat() {
 
               {Object.entries(peers).map(([peerId, stream], index) => (
                 <div key={peerId} className={styles.videoBox}>
-                  {stream ? (
+                  {stream && remoteVideosRef.current[peerId]?.srcObject ? (
                     <video
                       ref={el => {
                         if (el && remoteVideosRef.current[peerId]) {
                           el.srcObject = remoteVideosRef.current[peerId].srcObject;
-                          el.play().catch(e => console.log('Play error:', e));
+                          el.play().catch(e => console.log(`Play error for peer ${peerId}:`, e));
                         }
                       }}
                       autoPlay
                       playsInline
                       className={styles.video}
                       volume={1.0}
+                      onError={e => console.error(`Video error for peer ${peerId}:`, e)}
                     />
                   ) : (
                     <div className={styles.videoOffOverlay}>
@@ -694,7 +783,20 @@ export default function VideoChat() {
                       </span>
                     </div>
                   )}
-                  <div className={styles.videoLabel}>Участник {index + 1}</div>
+                  {isOwner && peerId !== myPeerId.current && (
+                    <div className={styles.ownerControls}>
+                      <button onClick={() => sendMutePeer(peerId, 'audio')} title={peerStates[peerId]?.audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}>
+                        {peerStates[peerId]?.audioEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+                      </button>
+                      <button onClick={() => sendMutePeer(peerId, 'video')} title={peerStates[peerId]?.videoEnabled ? 'Выключить видео' : 'Включить видео'}>
+                        {peerStates[peerId]?.videoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
+                      </button>
+                      <button onClick={() => sendKickPeer(peerId)} title="Исключить">
+                        <PhoneOff size={16} />
+                      </button>
+                    </div>
+                  )}
+                  <div className={styles.videoLabel}>Участник {index + 1} {peerId === roomOwner ? <Crown style={{ width: '1rem', height: '1rem', color: '#fbbf24' }} /> : ''}</div>
                 </div>
               ))}
             </div>

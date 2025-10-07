@@ -44,7 +44,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (rooms[roomId]?.includes(peerId)) {
+    if (rooms[roomId]?.peers.includes(peerId)) {
       socket.emit('error', { message: 'This peerId is already in use' });
       return;
     }
@@ -54,21 +54,24 @@ io.on('connection', (socket) => {
     socket.peerId = peerId;
     socket.roomId = roomId;
 
-    // Получаем список существующих пиров в комнате
-    const existingPeers = rooms[roomId] || [];
-    
     if (!rooms[roomId]) {
-      rooms[roomId] = [];
+      rooms[roomId] = { owner: peerId, peers: [] }; // Первый — owner
     }
-    rooms[roomId].push(peerId);
+    rooms[roomId].peers.push(peerId);
     socket.join(roomId);
 
-    // Отправляем новому пользователю список существующих пиров
-    socket.emit('existing-peers', existingPeers);
+    // Получаем список существующих пиров (без текущего)
+    const existingPeers = rooms[roomId].peers.filter(id => id !== peerId);
 
-    // Уведомляем существующих пользователей о новом пире
+    // Отправляем новому пользователю info о комнате
+    socket.emit('room-info', {
+      owner: rooms[roomId].owner,
+      existingPeers
+    });
+
+    // Уведомляем существующих о новом пире
     socket.to(roomId).emit('peer-joined', peerId);
-    console.log(`${peerId} joined room ${roomId}. Existing peers:`, existingPeers);
+    console.log(`${peerId} joined room ${roomId}. Owner: ${rooms[roomId].owner}. Existing peers:`, existingPeers);
   });
 
   socket.on('offer', ({ offer, to, roomId }) => {
@@ -113,28 +116,88 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Новые события для команд owner'а
+  socket.on('mute-peer', ({ targetPeerId, type, mute }) => {
+    const roomId = socket.roomId;
+    const peerId = socket.peerId;
+    if (!roomId || !rooms[roomId] || rooms[roomId].owner !== peerId) {
+      console.log(`Unauthorized mute attempt from ${peerId}`);
+      return;
+    }
+    const targetSocketId = peerToSocket[targetPeerId];
+    if (targetSocketId && rooms[roomId].peers.includes(targetPeerId)) {
+      io.to(targetSocketId).emit('mute-command', { type, mute });
+      // Отправляем обновление всем в комнате, включая владельца
+      io.in(roomId).emit('mute-update', { peerId: targetPeerId, type, mute });
+      console.log(`Owner ${peerId} muted ${type} for ${targetPeerId} (mute: ${mute})`);
+    } else {
+      console.log(`Target peer ${targetPeerId} not found`);
+    }
+  });
+
+  socket.on('kick-peer', ({ targetPeerId }) => {
+    const roomId = socket.roomId;
+    const peerId = socket.peerId;
+    if (!roomId || !rooms[roomId] || rooms[roomId].owner !== peerId) {
+      console.log(`Unauthorized kick attempt from ${peerId}`);
+      return;
+    }
+    const targetSocketId = peerToSocket[targetPeerId];
+    if (targetSocketId && rooms[roomId].peers.includes(targetPeerId)) {
+      io.to(targetSocketId).emit('kicked');
+      // Очищаем данные исключённого пира
+      rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== targetPeerId);
+      delete peerToSocket[targetPeerId];
+      // Уведомляем всех в комнате, включая владельца
+      io.in(roomId).emit('peer-left', targetPeerId);
+      console.log(`Owner ${peerId} kicked ${targetPeerId} from room ${roomId}`);
+      if (rooms[roomId].peers.length === 0) {
+        delete rooms[roomId];
+      }
+    } else {
+      console.log(`Target peer ${targetPeerId} not found`);
+    }
+  });
+
   socket.on('leave-room', (roomId, peerId) => {
     if (rooms[roomId]) {
-      rooms[roomId] = rooms[roomId].filter(id => id !== peerId);
+      rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== peerId);
+      if (rooms[roomId].owner === peerId) {
+        // Передаём права владельца следующему в списке peers
+        rooms[roomId].owner = rooms[roomId].peers[0] || null;
+        if (rooms[roomId].owner) {
+          console.log(`New owner for room ${roomId}: ${rooms[roomId].owner}`);
+          io.in(roomId).emit('new-owner', rooms[roomId].owner);
+        }
+      }
       delete peerToSocket[peerId];
       socket.to(roomId).emit('peer-left', peerId);
       socket.leave(roomId);
       console.log(`${peerId} left room ${roomId}`);
-      if (rooms[roomId].length === 0) {
+      if (rooms[roomId].peers.length === 0) {
         delete rooms[roomId];
       }
     }
   });
 
+  // В обработчике disconnect
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     const { roomId, peerId } = socket;
     if (roomId && rooms[roomId] && peerId) {
-      rooms[roomId] = rooms[roomId].filter(id => id !== peerId);
+      rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== peerId);
+      if (rooms[roomId].owner === peerId) {
+        // Передаём права владельца следующему в списке peers
+        rooms[roomId].owner = rooms[roomId].peers[0] || null;
+        if (rooms[roomId].owner) {
+          console.log(`New owner for room ${roomId}: ${rooms[roomId].owner}`);
+          io.in(roomId).emit('new-owner', rooms[roomId].owner);
+        }
+      }
       delete peerToSocket[peerId];
-      socket.to(roomId).emit('peer-left', peerId);
+      io.in(roomId).emit('peer-left', peerId); // Используем io.in для отправки всем, включая владельца
       console.log(`${peerId} disconnected from room ${roomId}`);
-      if (rooms[roomId].length === 0) {
+      if (rooms[roomId].peers.length === 0) {
         delete rooms[roomId];
       }
     }
