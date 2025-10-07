@@ -1,0 +1,185 @@
+.container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1e293b 0%, #581c87 50%, #1e293b 100%);
+  color: white;
+  padding: 1rem;
+}
+
+.mainContent {
+  max-width: 80rem;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.title {
+  font-size: 2.25rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(to right, #c084fc, #f9a8d4);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  color: #d1d5db;
+}
+
+.loginBox {
+  max-width: 28rem;
+  margin: 0 auto;
+  background: #1e293b;
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  padding: 2rem;
+}
+
+.errorBox {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+  color: white;
+  outline: none;
+  margin-bottom: 1.5rem;
+}
+
+.joinButton {
+  width: 100%;
+  background: linear-gradient(to right, #a855f7, #ec4899);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s;
+  color: white;
+}
+
+.joinButtonDisabled {
+  width: 100%;
+  background: #4b5563;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  border: none;
+  cursor: not-allowed;
+  color: #9ca3af;
+}
+
+.roomInfo {
+  background: #1e293b;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.videoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.videoBox {
+  position: relative;
+  background: #1e293b;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.videoMirror {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.videoLabel {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+}
+
+.videoOffOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #334155;
+  gap: 0.5rem;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.controlButton {
+  padding: 1rem;
+  border-radius: 9999px;
+  background: #334155;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  color: white;
+}
+
+.controlButtonActive {
+  padding: 1rem;
+  border-radius: 9999px;
+  background: #dc2626;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  color: white;
+}
+
+.endCallButton {
+  padding: 1rem;
+  border-radius: 9999px;
+  background: #dc2626;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  color: white;
+}
