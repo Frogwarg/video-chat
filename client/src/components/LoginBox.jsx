@@ -1,5 +1,5 @@
 import { AlertCircle } from 'lucide-react';
-import styles from '../../src/App.module.css';
+import styles from '../App.module.css';
 
 export default function LoginBox({ roomId, setRoomId, serverIp, setServerIp, userName, setUserName, joinRoom, errorMessage }) {
   return (

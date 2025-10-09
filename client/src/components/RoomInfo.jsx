@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Users, Copy, Check, Crown } from 'lucide-react';
-import styles from '../../src/App.module.css';
+import styles from '../App.module.css';
 
 export default function RoomInfo({ currentRoom, isOwner, connectionStatus }) {
   const [copied, setCopied] = useState(false);

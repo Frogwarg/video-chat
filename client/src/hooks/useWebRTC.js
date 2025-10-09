@@ -12,7 +12,6 @@ export default function useWebRTC({
   localVideoRef,
   localStreamRef,
   peerConnectionsRef,
-  remoteVideosRef,
   isInCall
 }) {
   const [videoEnabled, setVideoEnabled] = useState(false);
@@ -35,7 +34,7 @@ export default function useWebRTC({
   const myPeerId = useRef(`peer-${Math.random().toString(36).substr(2, 9)}`);
 
   useEffect(() => {
-    socket.current = io(`https://${serverIp}`, {
+    socket.current = io(`${window.location.protocol}//${serverIp}`, {
       path: '/socket.io/',
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 3,
@@ -167,30 +166,48 @@ export default function useWebRTC({
   }, [isInCall, localStreamRef.current]);
 
   const checkDevices = async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        setErrorMessage('⚠️ API медиаустройств недоступен. Используйте HTTPS или localhost.');
-        setHasVideo(false);
-        setHasAudio(false);
-        return;
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setHasVideo(devices.some(device => device.kind === 'videoinput'));
-      setHasAudio(devices.some(device => device.kind === 'audioinput'));
-      
-      if (!hasVideo && !hasAudio) {
-        setErrorMessage('⚠️ Камера и микрофон не найдены. Вы можете подключиться без медиа.');
-      } else if (!hasVideo) {
-        setErrorMessage('⚠️ Камера не найдена. Подключение возможно с аудио или без медиа.');
-      } else if (!hasAudio) {
-        setErrorMessage('⚠️ Микрофон не найден. Подключение возможно с видео или без медиа.');
-      }
-    } catch (err) {
-      setErrorMessage('⚠️ Не удалось проверить устройства: ' + err.message);
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      setErrorMessage('⚠️ API медиаустройств недоступен. Используйте HTTPS или localhost.');
       setHasVideo(false);
       setHasAudio(false);
+      return;
     }
-  };
+
+    // Запрашиваем разрешения, чтобы получить доступ к меткам устройств
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream.getTracks().forEach(track => track.stop()); // Останавливаем треки, чтобы не держать устройства занятыми
+    } catch (err) {
+      console.warn('Failed to get user media for device enumeration:', err);
+      // Продолжаем, даже если разрешения не получены
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    const hasVideoInput = devices.some(device => device.kind === 'videoinput');
+    const hasAudioInput = devices.some(device => device.kind === 'audioinput');
+
+    setHasVideo(hasVideoInput);
+    setHasAudio(hasAudioInput);
+
+    if (!hasVideoInput && !hasAudioInput) {
+      setErrorMessage('⚠️ Камера и микрофон не найдены. Вы можете подключиться без медиа.');
+    } else if (!hasVideoInput) {
+      setErrorMessage('⚠️ Камера не найдена. Подключение возможно с аудио или без медиа.');
+    } else if (!hasAudioInput) {
+      setErrorMessage('⚠️ Микрофон не найден. Подключение возможно с видео или без медиа.');
+    } else {
+      setErrorMessage(''); // Очищаем сообщение об ошибке, если устройства найдены
+    }
+  } catch (err) {
+    console.error('Error in checkDevices:', err);
+    setErrorMessage('⚠️ Не удалось проверить устройства: ' + err.message);
+    setHasVideo(false);
+    setHasAudio(false);
+  }
+};
 
   const startLocalStream = async () => {
     try {
@@ -278,16 +295,16 @@ export default function useWebRTC({
     pc.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
         const remoteStream = event.streams[0];
-        if (!remoteVideosRef.current[peerId]) {
-          remoteVideosRef.current[peerId] = document.createElement('video');
-        }
-        const video = remoteVideosRef.current[peerId];
-        if (!video.srcObject) {
-          video.srcObject = remoteStream;
-          video.autoplay = true;
-          video.playsInline = true;
-          video.play().catch(() => {});
-        }
+        // if (!remoteVideosRef.current[peerId]) {
+        //   remoteVideosRef.current[peerId] = document.createElement('video');
+        // }
+        // const video = remoteVideosRef.current[peerId];
+        // if (!video.srcObject) {
+        //   video.srcObject = remoteStream;
+        //   video.autoplay = true;
+        //   video.playsInline = true;
+        //   video.play().catch(() => {});
+        // }
         setPeers(prev => ({ ...prev, [peerId]: remoteStream }));
       }
     };
@@ -338,10 +355,6 @@ export default function useWebRTC({
         peerConnectionsRef.current[fromPeerId].close();
         delete peerConnectionsRef.current[fromPeerId];
       }
-      if (remoteVideosRef.current[fromPeerId]) {
-        remoteVideosRef.current[fromPeerId].srcObject = null;
-        delete remoteVideosRef.current[fromPeerId];
-      }
       setPeers(prev => {
         const newPeers = { ...prev };
         delete newPeers[fromPeerId];
@@ -370,9 +383,6 @@ export default function useWebRTC({
     setMyUserName(finalUserName);
 
     const stream = await startLocalStream();
-    if (stream === null && !hasVideo && !hasAudio) {
-      console.log('Joining without media');
-    }
 
     localStreamRef.current = stream;
     setCurrentRoom(roomId);
@@ -405,7 +415,6 @@ export default function useWebRTC({
     setRoomOwner('');
     setPeerNames({});
     setMyUserName('');
-    remoteVideosRef.current = {};
   };
 
   const toggleVideo = () => {
@@ -421,6 +430,12 @@ export default function useWebRTC({
             }
           });
         });
+        socket.current.emit('mute-update', {
+        peerId: myPeerId.current,
+        type: 'video',
+        mute: !videoTrack.enabled,
+        roomId: currentRoom
+      });
       }
     }
   };
@@ -438,11 +453,29 @@ export default function useWebRTC({
             }
           });
         });
+        socket.current.emit('mute-update', {
+        peerId: myPeerId.current,
+        type: 'audio',
+        mute: !audioTrack.enabled,
+        roomId: currentRoom
+      });
       } else {
         setAudioEnabled(false);
+        socket.current.emit('mute-update', {
+        peerId: myPeerId.current,
+        type: 'audio',
+        mute: true,
+        roomId: currentRoom
+      });
       }
     } else {
       setAudioEnabled(false);
+      socket.current.emit('mute-update', {
+        peerId: myPeerId.current,
+        type: 'audio',
+        mute: true,
+        roomId: currentRoom
+      });
     }
   };
 

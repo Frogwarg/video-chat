@@ -145,6 +145,16 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('mute-update', ({ peerId, type, mute, roomId }) => {
+    if (!roomId || !rooms[roomId] || !rooms[roomId].peers.includes(peerId)) {
+      console.log(`Invalid mute-update from ${peerId} for room ${roomId}`);
+      return;
+    }
+    // Рассылаем обновление всем в комнате, включая отправителя
+    io.in(roomId).emit('mute-update', { peerId, type, mute });
+    console.log(`Peer ${peerId} updated ${type} state: mute=${mute} in room ${roomId}`);
+  });
+
   socket.on('kick-peer', ({ targetPeerId }) => {
     const roomId = socket.roomId;
     const peerId = socket.peerId;

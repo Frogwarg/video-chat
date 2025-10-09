@@ -1,5 +1,5 @@
 import { Video, VideoOff, Mic, MicOff, PhoneOff } from 'lucide-react';
-import styles from '../../src/App.module.css';
+import styles from '../App.module.css';
 
 export default function Controls({
   videoEnabled,

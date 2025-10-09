@@ -14,7 +14,6 @@ export default function VideoChat() {
   const [isInCall, setIsInCall] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const localVideoRef = useRef(null);
-  const remoteVideosRef = useRef({});
   const localStreamRef = useRef(null);
   const peerConnectionsRef = useRef({});
 
@@ -49,7 +48,6 @@ export default function VideoChat() {
     localVideoRef,
     localStreamRef,
     peerConnectionsRef,
-    remoteVideosRef,
     isInCall
   });
 
@@ -81,7 +79,6 @@ export default function VideoChat() {
             />
             <VideoGrid
               localVideoRef={localVideoRef}
-              remoteVideosRef={remoteVideosRef}
               localStreamRef={localStreamRef}
               peers={peers}
               isOwner={isOwner}
