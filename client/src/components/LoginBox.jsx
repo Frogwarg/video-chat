@@ -1,7 +1,7 @@
 import { AlertCircle } from 'lucide-react';
 import styles from '../../src/App.module.css';
 
-export default function LoginBox({ roomId, setRoomId, serverIp, setServerIp, joinRoom, errorMessage }) {
+export default function LoginBox({ roomId, setRoomId, serverIp, setServerIp, userName, setUserName, joinRoom, errorMessage }) {
   return (
     <div className={styles.loginBox}>
       {errorMessage && (
@@ -35,6 +35,20 @@ export default function LoginBox({ roomId, setRoomId, serverIp, setServerIp, joi
           placeholder="Введите ID комнаты"
           className={styles.input}
           onKeyPress={(e) => e.key === 'Enter' && joinRoom()}
+        />
+      </div>
+
+      <div style={{ marginBottom: '1.5rem' }}>
+        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem', color: '#d1d5db' }}>
+          Ваше имя
+        </label>
+        <input
+          type="text"
+          value={userName}
+          onChange={(e) => setUserName(e.target.value)}
+          placeholder="Введите ваше имя"
+          className={styles.input}
+          maxLength={30}
         />
       </div>
 

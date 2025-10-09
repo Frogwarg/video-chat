@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import styles from '../../src/App.module.css';
+import styles from './App.module.css';
 import LoginBox from './components/LoginBox.jsx';
 import RoomInfo from './components/RoomInfo.jsx';
 import VideoGrid from './components/VideoGrid.jsx';
@@ -9,6 +9,7 @@ import useWebRTC from './hooks/useWebRTC.js';
 export default function VideoChat() {
   const [roomId, setRoomId] = useState('');
   const [serverIp, setServerIp] = useState('192.168.0.108:3000');
+  const [userName, setUserName] = useState('');
   const [currentRoom, setCurrentRoom] = useState('');
   const [isInCall, setIsInCall] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -29,6 +30,8 @@ export default function VideoChat() {
     isOwner,
     roomOwner,
     peerStates,
+    peerNames,
+    myUserName,
     joinRoom,
     leaveRoom,
     toggleVideo,
@@ -38,6 +41,7 @@ export default function VideoChat() {
   } = useWebRTC({
     serverIp,
     roomId,
+    userName,
     currentRoom,
     setCurrentRoom,
     setIsInCall,
@@ -63,6 +67,8 @@ export default function VideoChat() {
             setRoomId={setRoomId}
             serverIp={serverIp}
             setServerIp={setServerIp}
+            userName={userName}
+            setUserName={setUserName}
             joinRoom={joinRoom}
             errorMessage={errorMessage}
           />
@@ -81,6 +87,8 @@ export default function VideoChat() {
               isOwner={isOwner}
               roomOwner={roomOwner}
               peerStates={peerStates}
+              peerNames={peerNames}
+              myUserName={myUserName}
               localStreamReady={localStreamReady}
               videoEnabled={videoEnabled}
               hasVideo={hasVideo}

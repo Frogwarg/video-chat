@@ -26,9 +26,10 @@ const io = new Server(httpsServer, {
   path: '/socket.io/'
 });
 
-// Храним соответствие peerId -> socket.id
+// Храним соответствие peerId -> socket.id и имена пользователей
 const rooms = {};
 const peerToSocket = {};
+const peerNames = {}; // Новое: храним имена пользователей
 
 app.use(express.static(path.join(__dirname, 'build')));
 app.use((req, res) => {
@@ -38,7 +39,7 @@ app.use((req, res) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  socket.on('join-room', (roomId, peerId) => {
+  socket.on('join-room', (roomId, peerId, userName) => {
     if (!roomId || !peerId) {
       socket.emit('error', { message: 'Invalid roomId or peerId' });
       return;
@@ -49,29 +50,38 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Сохраняем связь peerId -> socket.id
+    // Сохраняем связь peerId -> socket.id и имя пользователя
     peerToSocket[peerId] = socket.id;
+    peerNames[peerId] = userName || `User ${peerId.substr(0, 6)}`;
     socket.peerId = peerId;
     socket.roomId = roomId;
 
     if (!rooms[roomId]) {
-      rooms[roomId] = { owner: peerId, peers: [] }; // Первый — owner
+      rooms[roomId] = { owner: peerId, peers: [] };
     }
     rooms[roomId].peers.push(peerId);
     socket.join(roomId);
 
-    // Получаем список существующих пиров (без текущего)
+    // Получаем список существующих пиров с их именами
     const existingPeers = rooms[roomId].peers.filter(id => id !== peerId);
+    const peersWithNames = existingPeers.map(id => ({
+      peerId: id,
+      userName: peerNames[id]
+    }));
 
     // Отправляем новому пользователю info о комнате
     socket.emit('room-info', {
       owner: rooms[roomId].owner,
-      existingPeers
+      existingPeers: peersWithNames
     });
 
-    // Уведомляем существующих о новом пире
-    socket.to(roomId).emit('peer-joined', peerId);
-    console.log(`${peerId} joined room ${roomId}. Owner: ${rooms[roomId].owner}. Existing peers:`, existingPeers);
+    // Уведомляем существующих о новом пире с его именем
+    socket.to(roomId).emit('peer-joined', {
+      peerId,
+      userName: peerNames[peerId]
+    });
+    
+    console.log(`${peerId} (${peerNames[peerId]}) joined room ${roomId}. Owner: ${rooms[roomId].owner}`);
   });
 
   socket.on('offer', ({ offer, to, roomId }) => {
@@ -88,7 +98,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('answer', ({ answer, to, roomId }) => {
+  socket.on('answer', ({ answer, to }) => {
     if (!to || !answer) {
       console.log('Invalid answer data');
       return;
@@ -102,7 +112,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('ice-candidate', ({ candidate, to, roomId }) => {
+  socket.on('ice-candidate', ({ candidate, to}) => {
     if (!to || !candidate) {
       console.log('Invalid ICE candidate data');
       return;
@@ -145,10 +155,9 @@ io.on('connection', (socket) => {
     const targetSocketId = peerToSocket[targetPeerId];
     if (targetSocketId && rooms[roomId].peers.includes(targetPeerId)) {
       io.to(targetSocketId).emit('kicked');
-      // Очищаем данные исключённого пира
       rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== targetPeerId);
       delete peerToSocket[targetPeerId];
-      // Уведомляем всех в комнате, включая владельца
+      delete peerNames[targetPeerId]; // Удаляем имя
       io.in(roomId).emit('peer-left', targetPeerId);
       console.log(`Owner ${peerId} kicked ${targetPeerId} from room ${roomId}`);
       if (rooms[roomId].peers.length === 0) {
@@ -163,7 +172,6 @@ io.on('connection', (socket) => {
     if (rooms[roomId]) {
       rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== peerId);
       if (rooms[roomId].owner === peerId) {
-        // Передаём права владельца следующему в списке peers
         rooms[roomId].owner = rooms[roomId].peers[0] || null;
         if (rooms[roomId].owner) {
           console.log(`New owner for room ${roomId}: ${rooms[roomId].owner}`);
@@ -171,6 +179,7 @@ io.on('connection', (socket) => {
         }
       }
       delete peerToSocket[peerId];
+      delete peerNames[peerId]; // Удаляем имя
       socket.to(roomId).emit('peer-left', peerId);
       socket.leave(roomId);
       console.log(`${peerId} left room ${roomId}`);
@@ -180,14 +189,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // В обработчике disconnect
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     const { roomId, peerId } = socket;
     if (roomId && rooms[roomId] && peerId) {
       rooms[roomId].peers = rooms[roomId].peers.filter(id => id !== peerId);
       if (rooms[roomId].owner === peerId) {
-        // Передаём права владельца следующему в списке peers
         rooms[roomId].owner = rooms[roomId].peers[0] || null;
         if (rooms[roomId].owner) {
           console.log(`New owner for room ${roomId}: ${rooms[roomId].owner}`);
@@ -195,7 +202,8 @@ io.on('connection', (socket) => {
         }
       }
       delete peerToSocket[peerId];
-      io.in(roomId).emit('peer-left', peerId); // Используем io.in для отправки всем, включая владельца
+      delete peerNames[peerId]; // Удаляем имя
+      io.in(roomId).emit('peer-left', peerId);
       console.log(`${peerId} disconnected from room ${roomId}`);
       if (rooms[roomId].peers.length === 0) {
         delete rooms[roomId];

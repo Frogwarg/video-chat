@@ -4,6 +4,7 @@ import io from 'socket.io-client';
 export default function useWebRTC({
   serverIp,
   roomId,
+  userName,
   currentRoom,
   setCurrentRoom,
   setIsInCall,
@@ -25,6 +26,8 @@ export default function useWebRTC({
   const [isOwner, setIsOwner] = useState(false);
   const [roomOwner, setRoomOwner] = useState('');
   const [peerStates, setPeerStates] = useState({});
+  const [peerNames, setPeerNames] = useState({});
+  const [myUserName, setMyUserName] = useState('');
 
   const socket = useRef(null);
   const audioContextRef = useRef(null);
@@ -50,12 +53,15 @@ export default function useWebRTC({
     socket.current.on('room-info', ({ owner, existingPeers }) => {
       setRoomOwner(owner);
       setIsOwner(myPeerId.current === owner);
-      existingPeers.forEach(peerId => {
+      
+      existingPeers.forEach(({ peerId, userName }) => {
+        setPeerNames(prev => ({ ...prev, [peerId]: userName }));
         handleSignal({ type: 'peer-joined', fromPeerId: peerId });
       });
     });
 
-    socket.current.on('peer-joined', (peerId) => {
+    socket.current.on('peer-joined', ({ peerId, userName }) => {
+      setPeerNames(prev => ({ ...prev, [peerId]: userName }));
       setPeerStates(prev => ({
         ...prev,
         [peerId]: { audioEnabled: true, videoEnabled: true }
@@ -346,6 +352,11 @@ export default function useWebRTC({
         delete newStates[fromPeerId];
         return newStates;
       });
+      setPeerNames(prev => {
+        const newNames = { ...prev };
+        delete newNames[fromPeerId];
+        return newNames;
+      });
     }
   };
 
@@ -355,6 +366,9 @@ export default function useWebRTC({
       return;
     }
 
+    const finalUserName = userName.trim() || 'Гость';
+    setMyUserName(finalUserName);
+
     const stream = await startLocalStream();
     if (stream === null && !hasVideo && !hasAudio) {
       console.log('Joining without media');
@@ -363,7 +377,7 @@ export default function useWebRTC({
     localStreamRef.current = stream;
     setCurrentRoom(roomId);
     setIsInCall(true);
-    socket.current.emit('join-room', roomId, myPeerId.current);
+    socket.current.emit('join-room', roomId, myPeerId.current, finalUserName);
   };
 
   const leaveRoom = () => {
@@ -389,6 +403,8 @@ export default function useWebRTC({
     setAudioLevel(0);
     setIsOwner(false);
     setRoomOwner('');
+    setPeerNames({});
+    setMyUserName('');
     remoteVideosRef.current = {};
   };
 
@@ -460,6 +476,8 @@ export default function useWebRTC({
     isOwner,
     roomOwner,
     peerStates,
+    peerNames,
+    myUserName,
     joinRoom,
     leaveRoom,
     toggleVideo,

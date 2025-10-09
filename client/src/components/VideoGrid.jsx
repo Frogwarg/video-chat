@@ -9,6 +9,8 @@ export default function VideoGrid({
   isOwner,
   roomOwner,
   peerStates,
+  peerNames,
+  myUserName,
   localStreamReady,
   videoEnabled,
   hasVideo,
@@ -36,7 +38,9 @@ export default function VideoGrid({
             </span>
           </div>
         )}
-        <div className={styles.videoLabel}>Вы</div>
+        <div className={styles.videoLabel}>
+          {myUserName || 'Вы'} (Вы)
+        </div>
         {audioEnabled && audioLevel > 0 && (
           <div style={{
             position: 'absolute',
@@ -95,7 +99,7 @@ export default function VideoGrid({
             </div>
           )}
           <div className={styles.videoLabel}>
-            Участник {index + 1} {peerId === roomOwner ? <Crown style={{ width: '1rem', height: '1rem', color: '#fbbf24' }} /> : ''}
+            {peerNames[peerId] || 'Участник'} {peerId === roomOwner && <Crown style={{ width: '1rem', height: '1rem', color: '#fbbf24', display: 'inline-block', marginLeft: '0.25rem' }} />}
           </div>
         </div>
       ))}
