@@ -15,7 +15,8 @@ const httpApp = express();
 const httpServer = http.createServer(httpApp);
 
 httpApp.use((req, res) => {
-  res.redirect(`https://${req.headers.host}${req.url}`);
+  const host = req.headers.host.split(':')[0]; // Берём только IP/домен без порта
+  res.redirect(`https://${host}:3000${req.url}`);
 });
 
 const io = new Server(httpsServer, {
